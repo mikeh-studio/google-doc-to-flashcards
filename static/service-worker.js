@@ -1,4 +1,4 @@
-const CACHE_NAME = "dino-decks-shell-v2";
+const CACHE_NAME = "dino-decks-shell-v3";
 const APP_SHELL = [
   "/",
   "/index.html",
@@ -6,6 +6,7 @@ const APP_SHELL = [
   "/manifest.webmanifest",
   "/static/styles.css",
   "/static/app.js",
+  "/static/browser-session.js",
   "/static/assets/purple-dinosaur-icon.png",
 ];
 
@@ -31,7 +32,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  if (url.pathname.startsWith("/api/")) {
+  if (url.pathname.startsWith("/api/") || url.pathname === "/browser-session") {
     event.respondWith(
       fetch(event.request).catch(() =>
         new Response(JSON.stringify({ error: "Offline. Cached decks may still be available in the app." }), {

@@ -38,10 +38,22 @@ Neutral sample material is available in `examples/`:
 Decks live as markdown files on whichever machine runs `app.py`. To review those decks from a phone, keep the desktop as the server and connect over a trusted private network.
 
 ```bash
-HOST=0.0.0.0 APP_PASSCODE=your-strong-passphrase python3 app.py
+HOST=127.0.0.1 APP_PASSCODE=your-strong-passphrase \
+  APP_TRUSTED_ORIGINS=https://your-machine.your-tailnet.ts.net \
+  APP_COOKIE_SECURE=1 python3 app.py
 ```
 
-Then open the printed desktop URL from the phone. For remote access, prefer [Tailscale](https://tailscale.com) or another private-network tool over port forwarding.
+Replace the hostname with your desktop's actual Tailscale HTTPS hostname. In another
+terminal on the desktop, run [Tailscale Serve](https://tailscale.com/docs/reference/tailscale-cli/serve):
+
+```bash
+tailscale serve --bg http://127.0.0.1:8765
+```
+
+Open that HTTPS hostname from a phone on your tailnet. The proxy must preserve the
+configured Host. `APP_TRUSTED_ORIGINS` takes exact HTTPS origins, comma-separated,
+without a trailing slash or path. Plain HTTP LAN URLs are not supported. See
+[BROWSER_SECURITY.md](BROWSER_SECURITY.md) for the browser-session requirements.
 
 The web UI includes PWA metadata and a service worker. Once a phone has synced, decks are cached for offline review; generating, deleting, or fetching new decks still requires the live Python backend.
 
@@ -51,7 +63,7 @@ When `APP_PASSCODE` is set, each device signs in once with a signed, HttpOnly co
 - `APP_AUTH_SECRET`: rotate to revoke every signed-in device.
 - `APP_COOKIE_SECURE=1`: use when serving over HTTPS.
 
-This passcode gate is intended for private-network use. Do not expose this server directly to the public internet without HTTPS and normal production hardening. To sign out a device, visit `/logout`.
+This passcode gate is intended for private-network use. Do not expose this server directly to the public internet without HTTPS and normal production hardening. To sign out a device, use the UI's sign-out action (a session-protected POST to `/logout`).
 
 ## CLI
 
