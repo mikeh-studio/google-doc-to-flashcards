@@ -6,7 +6,6 @@ import ipaddress
 import json
 import secrets
 import time
-from http.cookies import CookieError, SimpleCookie
 
 _KEY = secrets.token_bytes(32)
 _COOKIE = "local_browser_session"
@@ -39,9 +38,19 @@ class BrowserBoundary:
         return False
 
     def _session(self):
+        # Cookies are shared across ports. Malformed unrelated values must not
+        # hide this app's signed token; duplicate session cookies are ambiguous.
+        values = []
+        for part in self.headers.get("Cookie", "").split(";"):
+            name, separator, value = part.strip().partition("=")
+            if name == self._cookie_name():
+                if not separator:
+                    return None
+                values.append(value)
+        if len(values) != 1:
+            return None
+        token = values[0]
         try:
-            jar = SimpleCookie(self.headers.get("Cookie", ""))
-            token = jar[self._cookie_name()].value
             nonce, expires, signature = token.split(".")
             expected = hmac.new(
                 _KEY, f"{nonce}.{expires}".encode(), hashlib.sha256
@@ -50,7 +59,7 @@ class BrowserBoundary:
                 signature.encode(), expected.encode()
             ):
                 return token
-        except (KeyError, ValueError, CookieError):
+        except ValueError:
             pass
         return None
 
@@ -72,11 +81,6 @@ class BrowserBoundary:
         ):
             if len(self.headers.get_all(name, [])) > 1:
                 return deny("Duplicate security header")
-        if any(
-            name.lower() == "forwarded" or name.lower().startswith("x-forwarded-")
-            for name in self.headers
-        ):
-            return deny("Forwarded headers are not trusted")
         host = self.headers.get("Host", "")
         port = self.server.server_address[1]
         authorities = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"}
@@ -85,6 +89,11 @@ class BrowserBoundary:
         remote = self.trusted_remote_origins()
         remote_hosts = {origin.split("://", 1)[1]: origin for origin in remote}
         if host in authorities:
+            if any(
+                name.lower() == "forwarded" or name.lower().startswith("x-forwarded-")
+                for name in self.headers
+            ):
+                return deny("Forwarded headers are not trusted for local access")
             try:
                 if not ipaddress.ip_address(self.client_address[0]).is_loopback:
                     return deny("Loopback client required")
@@ -92,6 +101,9 @@ class BrowserBoundary:
                 return deny("Loopback client required")
             self._browser_origin = "http://" + host
         elif host in remote_hosts:
+            # Explicit HTTPS authorities may arrive through a TLS proxy. Ignore
+            # forwarded metadata: only the actual Host selects the trusted origin,
+            # and passcode authentication plus session CSRF still gate mutations.
             self._browser_origin = remote_hosts[host]
         else:
             return deny("Untrusted Host or port")

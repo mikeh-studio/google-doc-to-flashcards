@@ -126,9 +126,9 @@ class BrowserBoundaryTests(unittest.TestCase):
             {"X-Forwarded-For": "127.0.0.1"},
             {"Upgrade": "websocket"},
         ]
-        for patch in mutations:
-            with self.subTest(patch=patch):
-                candidate = headers | patch
+        for mutation in mutations:
+            with self.subTest(mutation=mutation):
+                candidate = headers | mutation
                 candidate = {k: v for k, v in candidate.items() if v is not None}
                 count = len(self.effects)
                 self.assertIn(self.request(headers=candidate)[0], (403, 415))
@@ -207,6 +207,71 @@ class BrowserBoundaryTests(unittest.TestCase):
                     "; " + app.AUTH_COOKIE + "=" + app.issue_auth_token()
                 )
                 self.assertEqual(self.request(headers=headers)[0], 201)
+
+    def test_remote_proxy_headers_never_supply_authority_or_authentication(self):
+        import app
+
+        remote = "https://cards.example"
+        proxy_headers = {
+            "Host": "cards.example",
+            "X-Forwarded-For": "100.64.0.1",
+            "X-Forwarded-Host": "ignored.example",
+            "X-Forwarded-Proto": "http",
+        }
+        with patch.dict("os.environ", {"APP_TRUSTED_ORIGINS": remote}):
+            self.assertEqual(
+                self.request("GET", "/browser-session", proxy_headers)[0], 403
+            )
+            with patch.object(app, "APP_PASSCODE", "test-only-passcode"):
+                status, response_headers, body = self.request(
+                    "GET", "/browser-session", proxy_headers
+                )
+                self.assertEqual(status, 200)
+                self.assertIn("; Secure", response_headers["Set-Cookie"])
+                headers = {
+                    **proxy_headers,
+                    "Origin": remote,
+                    "Cookie": response_headers["Set-Cookie"].split(";", 1)[0],
+                    "X-CSRF-Token": json.loads(body)["csrf_token"],
+                    "Content-Type": "application/json",
+                }
+                before = len(self.effects)
+                self.assertEqual(self.request(headers=headers)[0], 401)
+                self.assertEqual(len(self.effects), before)
+                headers["Cookie"] += (
+                    "; " + app.AUTH_COOKIE + "=" + app.issue_auth_token()
+                )
+                for hostile in (
+                    {"Host": self.host},
+                    {"Host": "untrusted.example", "X-Forwarded-Host": "cards.example"},
+                    {"Origin": "https://ignored.example"},
+                    {"Sec-Fetch-Site": "cross-site"},
+                    {"X-CSRF-Token": "wrong"},
+                ):
+                    self.assertEqual(self.request(headers=headers | hostile)[0], 403)
+                    self.assertEqual(len(self.effects), before)
+                self.assertEqual(self.request(headers=headers)[0], 201)
+                self.assertEqual(len(self.effects), before + 1)
+
+    def test_unrelated_cookies_do_not_block_session(self):
+        headers = self.session_headers()
+        own_cookie = headers["Cookie"]
+        for unrelated in ("pref=dark mode", 'pref=bad"quote', "pref=bad\\slash"):
+            for cookie in (f"{unrelated}; {own_cookie}", f"{own_cookie}; {unrelated}"):
+                with self.subTest(cookie=cookie):
+                    before = len(self.effects)
+                    self.assertEqual(
+                        self.request(headers=headers | {"Cookie": cookie})[0], 201
+                    )
+                    self.assertEqual(len(self.effects), before + 1)
+        before = len(self.effects)
+        self.assertEqual(
+            self.request(headers=headers | {"Cookie": own_cookie + "; " + own_cookie})[
+                0
+            ],
+            403,
+        )
+        self.assertEqual(len(self.effects), before)
 
     def test_duplicate_security_headers(self):
         for name in ("Host", "Origin", "Content-Type", "X-CSRF-Token"):

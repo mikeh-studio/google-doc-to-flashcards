@@ -2046,9 +2046,9 @@ def main():
     print(f"{APP_NAME} running at http://{host}:{port}")
     print(f"Decks are saved to {DECKS_DIR}")
     if host == "0.0.0.0":
-        ip = lan_ip()
-        if ip:
-            print(f"On this network / Tailscale, open: http://{ip}:{port}")
+        print(
+            "Mobile access requires APP_TRUSTED_ORIGINS and an HTTPS proxy; see README.md."
+        )
     if auth_enabled():
         print("Passcode protection: ON (set via APP_PASSCODE).")
     else:
