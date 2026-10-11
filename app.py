@@ -1715,8 +1715,22 @@ def deck_to_apps_script(deck):
     ).strip()
 
 
-class FlashcardHandler(BaseHTTPRequestHandler):
+from browser_boundary import BrowserBoundary
+
+
+class FlashcardHandler(BrowserBoundary, BaseHTTPRequestHandler):
     server_version = "GoogleDocFlashcards/0.1"
+
+    def trusted_remote_origins(self):
+        # Remote authority is explicit and always requires existing passcode auth.
+        if not auth_enabled():
+            return set()
+        origins = os.getenv("APP_TRUSTED_ORIGINS", "").split(",")
+        return {origin for origin in origins if origin.startswith("https://") and
+                urllib.parse.urlsplit(origin).netloc and
+                origin == "https://" + urllib.parse.urlsplit(origin).netloc and
+                not urllib.parse.urlsplit(origin).username}
+
 
     def log_message(self, fmt, *args):
         return
@@ -1779,8 +1793,13 @@ class FlashcardHandler(BaseHTTPRequestHandler):
     def handle_login(self):
         length = int(self.headers.get("Content-Length", "0"))
         body = self.rfile.read(length).decode("utf-8") if length > 0 else ""
-        fields = urllib.parse.parse_qs(body)
-        passcode = (fields.get("passcode", [""])[0]).strip()
+        try:
+            fields = json.loads(body or "{}")
+            if not isinstance(fields, dict):
+                raise ValueError("Expected JSON object")
+        except ValueError:
+            return self.send_json({"error": "Invalid login JSON"}, 400)
+        passcode = str(fields.get("passcode", "")).strip()
         if auth_enabled() and hmac.compare_digest(passcode, APP_PASSCODE):
             self.send_response(303)
             self.send_header("Location", "/")
@@ -1853,7 +1872,7 @@ class FlashcardHandler(BaseHTTPRequestHandler):
                     return self.redirect("/")
                 return self.send_file(STATIC_DIR / "login.html", "text/html; charset=utf-8")
             if path == "/logout":
-                return self.handle_logout()
+                return self.send_json({"error": "Use POST to log out"}, 405)
             if path == "/api/config":
                 return self.send_json({"auth_enabled": auth_enabled()})
             if self.guard(path):
@@ -1894,6 +1913,8 @@ class FlashcardHandler(BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         if parsed.path == "/login":
             return self.handle_login()
+        if parsed.path == "/logout":
+            return self.handle_logout()
         if self.guard(parsed.path):
             return
         try:

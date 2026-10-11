@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="en">
   <head>
+    <script src="/static/browser-session.js"></script>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#252625">
@@ -34,6 +35,11 @@
       </div>
     </main>
     <script>
+      document.querySelector("form").addEventListener("submit", async event => {
+        event.preventDefault();
+        const response = await fetch("/login", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({passcode: event.target.passcode.value})});
+        location.href = response.url;
+      });
       if (new URLSearchParams(location.search).has("error")) {
         document.querySelector("#loginError").classList.remove("hidden");
       }
