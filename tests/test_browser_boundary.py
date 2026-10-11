@@ -6,6 +6,7 @@ import json
 import sys
 import threading
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from types import SimpleNamespace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -23,8 +24,14 @@ class BrowserBoundaryTests(unittest.TestCase):
         if (ROOT / "app.py").exists():
             import app
 
-            app.APP_PASSCODE = ""
-            app.add_manual_card = lambda *args: cls.effects.append(args) or {}
+            passcode_patch = patch.object(app, "APP_PASSCODE", "")
+            write_patch = patch.object(
+                app, "add_manual_card", lambda *args: cls.effects.append(args) or {}
+            )
+            passcode_patch.start()
+            write_patch.start()
+            cls.addClassCleanup(passcode_patch.stop)
+            cls.addClassCleanup(write_patch.stop)
             handler = app.FlashcardHandler
             cls.route = "/api/decks/example/cards"
         else:
@@ -65,12 +72,12 @@ class BrowserBoundaryTests(unittest.TestCase):
         cls.server.server_close()
         cls.thread.join()
 
-    def request(self, method="POST", path=None, headers=None):
+    def request(self, method="POST", path=None, headers=None, body=None):
         conn = http.client.HTTPConnection("127.0.0.1", self.server.server_port)
         conn.request(
             method,
             path or self.route,
-            body="{}" if method == "POST" else None,
+            body=body if body is not None else ("{}" if method == "POST" else None),
             headers=headers or {},
         )
         response = conn.getresponse()
@@ -131,6 +138,23 @@ class BrowserBoundaryTests(unittest.TestCase):
         count = len(self.effects)
         self.assertIn(self.request(headers=self.session_headers())[0], (200, 201, 202))
         self.assertEqual(len(self.effects), count + 1)
+
+    def test_login_rejects_invalid_json_and_unicode_wrong_passcode(self):
+        import app
+
+        with patch.object(app, "APP_PASSCODE", "test-only-passcode"):
+            headers = self.session_headers()
+            self.assertEqual(
+                self.request(path="/login", headers=headers, body="[")[0], 400
+            )
+            self.assertEqual(
+                self.request(
+                    path="/login",
+                    headers=headers,
+                    body=json.dumps({"passcode": "錯誤"}),
+                )[0],
+                303,
+            )
 
     def test_bootstrap_and_reads_reject_foreign_authority(self):
         for method in ("GET", "HEAD", "OPTIONS"):

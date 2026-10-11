@@ -775,7 +775,7 @@ if ("serviceWorker" in navigator) {
   });
 }
 
- document.querySelector("#logoutLink").addEventListener("click", async event => {
+document.querySelector("#logoutLink").addEventListener("click", async event => {
   event.preventDefault();
   await fetch("/logout", {method: "POST", headers: {"Content-Type": "application/json"}, body: "{}"});
   location.href = "/login";

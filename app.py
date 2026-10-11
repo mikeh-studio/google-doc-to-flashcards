@@ -1726,11 +1726,14 @@ class FlashcardHandler(BrowserBoundary, BaseHTTPRequestHandler):
         if not auth_enabled():
             return set()
         origins = os.getenv("APP_TRUSTED_ORIGINS", "").split(",")
-        return {origin for origin in origins if origin.startswith("https://") and
-                urllib.parse.urlsplit(origin).netloc and
-                origin == "https://" + urllib.parse.urlsplit(origin).netloc and
-                not urllib.parse.urlsplit(origin).username}
-
+        return {
+            origin
+            for origin in origins
+            if origin.startswith("https://")
+            and urllib.parse.urlsplit(origin).netloc
+            and origin == "https://" + urllib.parse.urlsplit(origin).netloc
+            and not urllib.parse.urlsplit(origin).username
+        }
 
     def log_message(self, fmt, *args):
         return
@@ -1800,7 +1803,9 @@ class FlashcardHandler(BrowserBoundary, BaseHTTPRequestHandler):
         except ValueError:
             return self.send_json({"error": "Invalid login JSON"}, 400)
         passcode = str(fields.get("passcode", "")).strip()
-        if auth_enabled() and hmac.compare_digest(passcode, APP_PASSCODE):
+        if auth_enabled() and hmac.compare_digest(
+            passcode.encode(), APP_PASSCODE.encode()
+        ):
             self.send_response(303)
             self.send_header("Location", "/")
             cookie = http.cookies.SimpleCookie()
